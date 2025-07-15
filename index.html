@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>路燈位置查詢地圖 - sanyilight</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+  <style>
+    html, body, #map {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+
+    #search {
+      position: absolute;
+      top: 10px;
+      left: 50px;
+      z-index: 1000;
+      background: white;
+      padding: 5px;
+      border-radius: 4px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+    }
+
+    @media (max-width: 600px) {
+      #search {
+        top: 5px;
+        left: 5px;
+        right: 5px;
+        width: auto;
+      }
+      #search input {
+        width: 150px;
+      }
+    }
+
+    .custom-cluster {
+      border-radius: 50%;
+      background: rgba(0, 123, 255, 0.8);
+      color: white;
+      text-align: center;
+      font-weight: bold;
+      line-height: 40px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.3);
+    }
+
+    .cluster-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: inline-block;
+      line-height: 40px;
+    }
+
+    .cluster-icon.small {
+      background: rgba(0, 123, 255, 0.7);
+    }
+
+    .cluster-icon.medium {
+      background: rgba(255, 193, 7, 0.8);
+    }
+
+    .cluster-icon.large {
+      background: rgba(220, 53, 69, 0.8);
+    }
+  </style>
+</head>
+<body>
+
+<div id="search">
+  <input type="text" id="searchInput" placeholder="輸入5碼路燈編號" />
+  <button onclick="searchLocation()">查詢</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+<script>
+  const SHEET_ID = "1AEzSnycqfuXb59m6E19f2rMBrCc4UxwY5bGp0R6Qnxk";
+  const SHEET_NAME = encodeURIComponent("路燈位置參考");
+  const sheetUrl = `https://opensheet.vercel.app/${SHEET_ID}/${SHEET_NAME}`;
+
+  const map = L.map('map').setView([24.4126, 120.6845], 14);
+
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' });
+  const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri' });
+  const carto = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '© Carto' });
+
+  osm.addTo(map);
+
+  L.control.layers({
+    "OpenStreetMap": osm,
+    "Esri 衛星圖": esri,
+    "Carto Light": carto
+  }).addTo(map);
+
+  const markersCluster = L.markerClusterGroup({
+    maxClusterRadius: 100,
+    iconCreateFunction: function (cluster) {
+      const count = cluster.getChildCount();
+      let size = "small";
+      if (count >= 50) {
+        size = "large";
+      } else if (count >= 20) {
+        size = "medium";
+      }
+      return L.divIcon({
+        html: `<div class="cluster-icon ${size}">${count}</div>`,
+        className: 'custom-cluster',
+        iconSize: L.point(40, 40)
+      });
+    }
+  });
+
+  const markers = {};
+
+  fetch(sheetUrl)
+    .then(res => res.json())
+    .then(data => {
+      const bounds = [];
+
+      if (!Array.isArray(data)) {
+        alert("讀取資料失敗，請確認工作表名稱及網址正確。");
+        console.error("資料格式錯誤", data);
+        return;
+      }
+
+      data.forEach(row => {
+        const id = row["原路燈號碼"];
+        const lat = parseFloat(row["緯度Latitude"]);
+        const lng = parseFloat(row["經度Longitude"]);
+
+        if (id && !isNaN(lat) && !isNaN(lng) && id.length === 5) {
+          const marker = L.marker([lat, lng])
+            .bindPopup(`路燈編號：${id}<br>座標: ${lat}, ${lng}<br><a href="https://www.google.com/maps?q=&layer=c&cbll=${lat},${lng}" target="_blank">查看街景</a>`);
+          markersCluster.addLayer(marker);
+          markers[id] = marker;
+          bounds.push([lat, lng]);
+        }
+      });
+
+      map.addLayer(markersCluster);
+
+      if (bounds.length > 0) {
+        map.fitBounds(bounds);
+      }
+
+    })
+    .catch(err => {
+      alert("抓取資料失敗，請稍後再試。");
+      console.error(err);
+    });
+
+  function searchLocation() {
+    const input = document.getElementById("searchInput").value.trim();
+    if (input.length !== 5) {
+      alert("請輸入5碼路燈編號！");
+      return;
+    }
+
+    if (markers[input]) {
+      map.setView(markers[input].getLatLng(), 18);
+      markers[input].openPopup();
+    } else {
+      alert("查無此路燈編號！");
+    }
+  }
+
+  document.getElementById("searchInput").addEventListener("keyup", e => {
+    if (e.key === "Enter") searchLocation();
+  });
+</script>
+
+</body>
+</html>
