@@ -3,40 +3,34 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>路燈位置查詢地圖 - sanyilight</title>
+  <title>路燈位置查詢地圖</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
   <style>
     html, body, #map {
       height: 100%;
-      margin: 0;
-      padding: 0;
+      margin: 0; padding: 0;
     }
-
     #search {
       position: absolute;
-      top: 10px;
-      left: 50px;
+      top: 10px; left: 5px; right: 5px;
       z-index: 1000;
       background: white;
       padding: 5px;
       border-radius: 4px;
       box-shadow: 0 0 5px rgba(0,0,0,0.3);
+      max-width: 300px;
+      margin: auto;
     }
-
+    #search input {
+      width: 150px;
+    }
     @media (max-width: 600px) {
-      #search {
-        top: 5px;
-        left: 5px;
-        right: 5px;
-        width: auto;
-      }
       #search input {
-        width: 150px;
+        width: 120px;
       }
     }
-
     .custom-cluster {
       border-radius: 50%;
       background: rgba(0, 123, 255, 0.8);
@@ -46,25 +40,37 @@
       line-height: 40px;
       box-shadow: 0 0 8px rgba(0,0,0,0.3);
     }
-
     .cluster-icon {
-      width: 40px;
-      height: 40px;
+      width: 40px; height: 40px;
       border-radius: 50%;
       display: inline-block;
       line-height: 40px;
     }
+    .cluster-icon.small { background: rgba(0, 123, 255, 0.7); }
+    .cluster-icon.medium { background: rgba(255, 193, 7, 0.8); }
+    .cluster-icon.large { background: rgba(220, 53, 69, 0.8); }
 
-    .cluster-icon.small {
-      background: rgba(0, 123, 255, 0.7);
+    .leaflet-tooltip {
+      font-size: 12px;
+      font-weight: bold;
+      background: rgba(255,255,255,0.85);
+      padding: 2px 5px;
+      border-radius: 3px;
+      border: 1px solid #ccc;
     }
 
-    .cluster-icon.medium {
-      background: rgba(255, 193, 7, 0.8);
-    }
-
-    .cluster-icon.large {
-      background: rgba(220, 53, 69, 0.8);
+    .toggle-btn {
+      position: absolute;
+      top: 60px;
+      right: 10px;
+      z-index: 1000;
+      background: #007bff;
+      color: white;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+      user-select: none;
     }
   </style>
 </head>
@@ -76,6 +82,7 @@
 </div>
 
 <div id="map"></div>
+<div class="toggle-btn" onclick="toggleTooltips()">隱藏號碼</div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
@@ -85,29 +92,16 @@
   const sheetUrl = `https://opensheet.vercel.app/${SHEET_ID}/${SHEET_NAME}`;
 
   const map = L.map('map').setView([24.4126, 120.6845], 14);
-
   const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' });
-  const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri' });
-  const carto = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '© Carto' });
-
   osm.addTo(map);
 
-  L.control.layers({
-    "OpenStreetMap": osm,
-    "Esri 衛星圖": esri,
-    "Carto Light": carto
-  }).addTo(map);
-
   const markersCluster = L.markerClusterGroup({
-    maxClusterRadius: 100,
+    maxClusterRadius: 30,
     iconCreateFunction: function (cluster) {
       const count = cluster.getChildCount();
       let size = "small";
-      if (count >= 50) {
-        size = "large";
-      } else if (count >= 20) {
-        size = "medium";
-      }
+      if (count >= 50) size = "large";
+      else if (count >= 20) size = "medium";
       return L.divIcon({
         html: `<div class="cluster-icon ${size}">${count}</div>`,
         className: 'custom-cluster',
@@ -117,17 +111,17 @@
   });
 
   const markers = {};
+  const tooltips = [];
 
   fetch(sheetUrl)
     .then(res => res.json())
     .then(data => {
-      const bounds = [];
-
       if (!Array.isArray(data)) {
         alert("讀取資料失敗，請確認工作表名稱及網址正確。");
-        console.error("資料格式錯誤", data);
         return;
       }
+
+      const bounds = [];
 
       data.forEach(row => {
         const id = row["原路燈號碼"];
@@ -137,6 +131,16 @@
         if (id && !isNaN(lat) && !isNaN(lng) && id.length === 5) {
           const marker = L.marker([lat, lng])
             .bindPopup(`路燈編號：${id}<br>座標: ${lat}, ${lng}<br><a href="https://www.google.com/maps?q=&layer=c&cbll=${lat},${lng}" target="_blank">查看街景</a>`);
+
+          const tooltip = marker.bindTooltip(id, {
+            permanent: true,
+            direction: "top",
+            offset: [0, -10],
+            opacity: 0.95
+          });
+
+          tooltips.push(tooltip);
+
           markersCluster.addLayer(marker);
           markers[id] = marker;
           bounds.push([lat, lng]);
@@ -144,16 +148,11 @@
       });
 
       map.addLayer(markersCluster);
-
       if (bounds.length > 0) {
         map.fitBounds(bounds);
       }
-
     })
-    .catch(err => {
-      alert("抓取資料失敗，請稍後再試。");
-      console.error(err);
-    });
+    .catch(() => alert("抓取資料失敗，請稍後再試。"));
 
   function searchLocation() {
     const input = document.getElementById("searchInput").value.trim();
@@ -161,7 +160,6 @@
       alert("請輸入5碼路燈編號！");
       return;
     }
-
     if (markers[input]) {
       map.setView(markers[input].getLatLng(), 18);
       markers[input].openPopup();
@@ -173,6 +171,15 @@
   document.getElementById("searchInput").addEventListener("keyup", e => {
     if (e.key === "Enter") searchLocation();
   });
+
+  let tooltipsVisible = true;
+  function toggleTooltips() {
+    tooltipsVisible = !tooltipsVisible;
+    document.querySelector(".toggle-btn").textContent = tooltipsVisible ? "隱藏號碼" : "顯示號碼";
+    document.querySelectorAll(".leaflet-tooltip").forEach(el => {
+      el.style.display = tooltipsVisible ? "block" : "none";
+    });
+  }
 </script>
 
 </body>
