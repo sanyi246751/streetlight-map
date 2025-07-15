@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8" />
+  <title>路燈位置查詢地圖 - MarkerCluster maxClusterRadius=100</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+  <style>
+    #map { height: 600px; }
+    #search {
+      position: absolute;
+      top: 10px; left: 50px;
+      z-index: 1000;
+      background: white;
+      padding: 5px;
+      border-radius: 4px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+    }
+  </style>
+</head>
+<body>
+
+<div id="search">
+  <input type="text" id="searchInput" placeholder="輸入5碼路燈編號" />
+  <button onclick="searchLocation()">查詢</button>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+<script>
+  const SHEET_ID = "1AEzSnycqfuXb59m6E19f2rMBrCc4UxwY5bGp0R6Qnxk";
+  const SHEET_NAME = encodeURIComponent("路燈位置參考");
+  const sheetUrl = `https://opensheet.vercel.app/${SHEET_ID}/${SHEET_NAME}`;
+
+  const map = L.map('map').setView([24.4127, 120.7703], 15);
+
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' });
+  const esri = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri' });
+  const carto = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '© Carto' });
+
+  osm.addTo(map);
+
+  L.control.layers({
+    "OpenStreetMap": osm,
+    "Esri 衛星圖": esri,
+    "Carto Light": carto
+  }).addTo(map);
+
+  const markersCluster = L.markerClusterGroup({
+    maxClusterRadius: 30
+  });
+  const markers = {};
+
+  fetch(sheetUrl)
+    .then(res => res.json())
+    .then(data => {
+      if (!Array.isArray(data)) {
+        alert("讀取資料失敗，請確認工作表名稱及網址正確。");
+        console.error("資料格式錯誤", data);
+        return;
+      }
+
+      data.forEach(row => {
+        const id = row["原路燈號碼"];
+        const lat = parseFloat(row["緯度Latitude"]);
+        const lng = parseFloat(row["經度Longitude"]);
+
+        if (id && lat && lng && id.length === 5) {
+          const marker = L.marker([lat, lng])
+            .bindPopup(
+              `路燈編號：${id}<br>座標: ${lat}, ${lng}<br>` +
+              `<a href="https://www.google.com/maps?q=&layer=c&cbll=${lat},${lng}" target="_blank">查看街景</a>`
+            );
+          marker.bindTooltip(id, { permanent: true, direction: "top", offset: [0, -10] }).openTooltip();
+
+          markersCluster.addLayer(marker);
+          markers[id] = marker;
+        }
+      });
+
+      map.addLayer(markersCluster);
+    })
+    .catch(err => {
+      alert("抓取資料失敗，請稍後再試。");
+      console.error(err);
+    });
+
+  function searchLocation() {
+    const input = document.getElementById("searchInput").value.trim();
+    if (input.length !== 5) {
+      alert("請輸入5碼路燈編號！");
+      return;
+    }
+
+    if (markers[input]) {
+      map.setView(markers[input].getLatLng(), 18);
+      markers[input].openPopup();
+    } else {
+      alert("查無此路燈編號！");
+    }
+  }
+
+  document.getElementById("searchInput").addEventListener("keyup", e => {
+    if (e.key === "Enter") searchLocation();
+  });
+</script>
+
+</body>
+</html>
