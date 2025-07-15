@@ -49,7 +49,6 @@
     .cluster-icon.small { background: rgba(0, 123, 255, 0.7); }
     .cluster-icon.medium { background: rgba(255, 193, 7, 0.8); }
     .cluster-icon.large { background: rgba(220, 53, 69, 0.8); }
-
     .leaflet-tooltip {
       font-size: 12px;
       font-weight: bold;
@@ -58,7 +57,6 @@
       border-radius: 3px;
       border: 1px solid #ccc;
     }
-
     .toggle-btn {
       position: absolute;
       top: 60px;
@@ -86,17 +84,41 @@
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+
 <script>
   const SHEET_ID = "1AEzSnycqfuXb59m6E19f2rMBrCc4UxwY5bGp0R6Qnxk";
   const SHEET_NAME = encodeURIComponent("路燈位置參考");
   const sheetUrl = `https://opensheet.vercel.app/${SHEET_ID}/${SHEET_NAME}`;
 
-  const map = L.map('map').setView([24.4126, 120.6845], 14);
-  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' });
-  osm.addTo(map);
+  // 定義底圖圖層
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+  });
+  const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles © Esri'
+  });
+  const openTopo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenTopoMap'
+  });
 
+  // 地圖初始化，預設 OSM
+  const map = L.map('map', {
+    center: [24.4126, 120.6845],
+    zoom: 14,
+    layers: [osm]
+  });
+
+  // 圖層控制器
+  const baseMaps = {
+    "街道地圖 (OSM)": osm,
+    "衛星地圖 (Esri)": esriSat,
+    "地形圖 (OpenTopoMap)": openTopo
+  };
+  L.control.layers(baseMaps, null, { position: 'topright' }).addTo(map);
+
+  // Marker 群組
   const markersCluster = L.markerClusterGroup({
-    maxClusterRadius: 25,
+    maxClusterRadius: 20,
     iconCreateFunction: function (cluster) {
       const count = cluster.getChildCount();
       let size = "small";
@@ -120,27 +142,17 @@
         alert("讀取資料失敗，請確認工作表名稱及網址正確。");
         return;
       }
-
       const bounds = [];
 
       data.forEach(row => {
         const id = row["原路燈號碼"];
         const lat = parseFloat(row["緯度Latitude"]);
         const lng = parseFloat(row["經度Longitude"]);
-
         if (id && !isNaN(lat) && !isNaN(lng) && id.length === 5) {
           const marker = L.marker([lat, lng])
             .bindPopup(`路燈編號：${id}<br>座標: ${lat}, ${lng}<br><a href="https://www.google.com/maps?q=&layer=c&cbll=${lat},${lng}" target="_blank">查看街景</a>`);
-
-          const tooltip = marker.bindTooltip(id, {
-            permanent: true,
-            direction: "top",
-            offset: [0, -10],
-            opacity: 0.95
-          });
-
+          const tooltip = marker.bindTooltip(id, { permanent: true, direction: "top", offset: [0, -10], opacity: 0.95 });
           tooltips.push(tooltip);
-
           markersCluster.addLayer(marker);
           markers[id] = marker;
           bounds.push([lat, lng]);
