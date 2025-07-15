@@ -73,7 +73,7 @@
   osm.addTo(map);
 
   const markersCluster = L.markerClusterGroup({
-    maxClusterRadius: 150,  // 放大聚合半徑
+    maxClusterRadius: 30,  // 放大聚合半徑
     iconCreateFunction: function (cluster) {
       const count = cluster.getChildCount();
       let size = "small";
