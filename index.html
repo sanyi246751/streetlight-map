@@ -96,7 +96,7 @@
   osm.addTo(map);
 
   const markersCluster = L.markerClusterGroup({
-    maxClusterRadius: 30,
+    maxClusterRadius: 25,
     iconCreateFunction: function (cluster) {
       const count = cluster.getChildCount();
       let size = "small";
