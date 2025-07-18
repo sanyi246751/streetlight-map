@@ -12,9 +12,11 @@
     #search {
       position: absolute; top: 10px; left: 5px; right: 5px; z-index: 1000;
       background: white; padding: 5px; border-radius: 4px;
-      box-shadow: 0 0 5px rgba(0,0,0,0.3); max-width: 300px; margin: auto;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3); max-width: 180px; margin: auto;
     }
-    #search input { width: 150px; }
+    #search input { width: 120px; 
+      font-size: 15px;
+    }
     @media (max-width: 600px) {
       #search input { width: 120px; }
     }
@@ -50,7 +52,7 @@
       box-shadow: 0 0 5px rgba(0,0,0,0.3); font-weight: bold;
     }
     #unrepairedList {
-      position: absolute; bottom: 10px; left: 10px; z-index: 1000;
+      position: absolute; bottom: 5px; left: 5px; z-index: 1000;
       background: white; padding: 5px 10px; border-radius: 4px;
       max-height: 200px; overflow-y: auto; width: 155px;
       box-shadow: 0 0 5px rgba(0,0,0,0.3); font-size: 13px;
@@ -113,7 +115,7 @@
 
   const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles © Esri',
-    maxNativeZoom: 19, maxZoom: 22
+    maxNativeZoom: 18, maxZoom: 22
   });
 
   const openTopo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
@@ -121,7 +123,11 @@
     maxNativeZoom: 17, maxZoom: 22
   });
 
-  L.control.layers({ "街道地圖 (OSM)": osm, "衛星地圖 (Esri)": esriSat, "地形圖 (OpenTopoMap)": openTopo }).addTo(map);
+  const layerControl = L.control.layers({
+    "街道地圖 (OSM)": osm,
+    "衛星地圖 (Esri)": esriSat,
+    "地形圖 (OpenTopoMap)": openTopo
+  }).addTo(map);
 
   const markersCluster = L.markerClusterGroup({
     maxClusterRadius: 50,
@@ -140,7 +146,6 @@
   const markers = {};
   const tooltips = [];
 
-  // 解析台灣格式的日期時間字串，例如：2025/07/16 上午 11:24:04
   function parseTaiwanDateTime(twStr) {
     if (!twStr) return null;
     const parts = twStr.trim().split(' ');
@@ -161,10 +166,9 @@
     fetch(checkSheetUrl).then(res => res.json())
   ]).then(([locationData, repairData]) => {
     const unrepairedSet = new Set();
-
     const now = new Date();
-
     const reportTimeMap = new Map();
+
     repairData.forEach(row => {
       const lampID = row["路燈編號"]?.trim();
       const reportTimeStr = row["通報時間"]?.trim();
@@ -205,13 +209,11 @@
       if (isUnrepaired) {
         marker.addTo(map);
 
-        // 閃爍效果
         setInterval(() => {
           if (!marker._icon) return;
           marker._icon.style.opacity = marker._icon.style.opacity == 1 ? 0.3 : 1;
         }, 500);
 
-        // 計算時間差
         let diffText = "";
         let colorSymbol = "";
 
@@ -219,18 +221,13 @@
         if (reportDate) {
           const diffMs = now - reportDate;
           const diffDays = diffMs / (1000 * 60 * 60 * 24);
-          const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-          const remainderHours = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-
-          // 判斷顏色符號
+          const daysPart = Math.floor(diffDays);
+          const hoursPart = Math.floor((diffMs - daysPart * 24 * 60 * 60 * 1000) / (1000 * 60 * 60));
           if (diffDays < 1) colorSymbol = "🔵";
           else if (diffDays < 3) colorSymbol = "🟡";
           else if (diffDays < 7) colorSymbol = "⚠️";
           else colorSymbol = "🆘";
 
-          // 顯示格式：X天Y時
-          const daysPart = Math.floor(diffDays);
-          const hoursPart = Math.floor((diffMs - daysPart * 24 * 60 * 60 * 1000) / (1000 * 60 * 60));
           diffText = `報修 ${daysPart}天${hoursPart}時 ${colorSymbol}`;
         } else {
           diffText = "無通報時間";
@@ -279,7 +276,66 @@
       el.style.display = tooltipsVisible ? "block" : "none";
     });
   }
+
+  // ⬇️ 載入村里界圖層
+  fetch('Sanyi_villages.geojson')
+    .then(res => res.json())
+    .then(geojson => {
+      const villageLayer = L.geoJSON(geojson, {
+        style: {
+          color: "#f50000",
+          weight: 1,
+          fillColor: "#7FFF00",
+          fillOpacity: 0,
+          dashArray: "5, 5"
+        },
+        onEachFeature: (feature, layer) => {
+          const name = feature.properties["VILLNAME"] || feature.properties["name"] || "未知村里";
+          layer.bindTooltip(name, {
+            permanent: false,
+            direction: "center"
+          });
+        }
+      }).addTo(map);
+      layerControl.addOverlay(villageLayer, "📍 村里界圖");
+    });
 </script>
+
+<!-- 備註區塊 -->
+<div style="
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: bold;
+  color: #333;
+  box-shadow: 0 0 5px rgba(0,0,0,0.2);
+  z-index: 1000;
+  text-align: right;
+">
+  <button
+    onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLSfVNWu8hTFXF20zaIrc3w6SAq0jevzRiel4erHUekvhVwGHxA/viewform', '_blank')"
+    style="
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 12px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 13px;
+    "
+  >
+    💡 路燈通報系統
+  </button>
+  <div style="margin-top: 6px; font-weight: normal; color: #555;">
+    07/20/2025 W.K Design.
+  </div>
+</div>
 
 </body>
 </html>
