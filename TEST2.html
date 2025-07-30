@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8" />
+<title>路燈管理系統 - 查詢＋分組顯示</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css"
+/>
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css"
+/>
+<style>
+  #map { height: 500px; margin-bottom:10px; }
+  table, th, td { border: 1px solid #aaa; border-collapse: collapse; padding: 5px; }
+  th { background: #eee; }
+  input { margin-right:10px; }
+  button { margin-right: 20px; margin-bottom: 10px; }
+  .group-title { margin-top: 20px; font-weight: bold; font-size: 1.2em; }
+</style>
+</head>
+<body>
+
+<h2>路燈管理系統</h2>
+
+<button type="button" onclick="locateUser()">定位我</button>
+
+<div style="margin-top:10px;">
+  <label for="search_id">路燈編號查詢：</label>
+  <input type="text" id="search_id" placeholder="輸入編號搜尋" />
+  <button type="button" onclick="searchLamp()">查詢</button>
+  <button type="button" onclick="clearSearch()">清除查詢</button>
+</div>
+
+<div id="map"></div>
+
+<form id="form" style="margin-top:10px;">
+  路燈編號: <input type="text" id="lamp_id" required />
+  緯度: <input type="number" step="any" id="lat" required />
+  經度: <input type="number" step="any" id="lng" required />
+  <button type="button" onclick="saveLamp()">新增/更新</button>
+  <button type="button" onclick="deleteLamp()">刪除</button>
+</form>
+
+<p id="status"></p>
+
+<h3>所有路燈資料</h3>
+<div id="table"></div>
+<div id="groupedTable"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+
+<script>
+const SHEET_URL = "https://script.google.com/macros/s/AKfycbwe5HzfCmOKIhpXEfmQUpueCwsl-2MxsAm5enbLRLp4q3vPhBe3uynUUPHwfQbM3xdHZg/exec";
+
+const map = L.map('map', {
+  center: [24.4126, 120.6845],
+  zoom: 14,
+  maxZoom: 22
+});
+const markers = L.markerClusterGroup();
+const statusEl = document.getElementById('status');
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 22 }).addTo(map);
+
+let allData = [];  // 儲存完整資料以方便查詢
+
+// 點擊地圖空白區新增
+map.on('click', async (e) => {
+  const lat = e.latlng.lat.toFixed(6);
+  const lng = e.latlng.lng.toFixed(6);
+  const id = prompt(`新增路燈\n請輸入路燈編號：`);
+
+  if (!id) {
+    alert("未輸入路燈編號，取消新增");
+    return;
+  }
+
+  statusEl.textContent = "新增中...";
+
+  try {
+    const res = await fetch(SHEET_URL + "?action=write", {
+      method: "POST",
+      body: new URLSearchParams({ id: id.trim(), lat, lng })
+    });
+    const msg = await res.text();
+    statusEl.textContent = msg;
+    loadData();
+  } catch (error) {
+    statusEl.textContent = "新增失敗";
+    console.error(error);
+  }
+});
+
+// 讀取資料並刷新地圖和表格（全部）
+function loadData() {
+  fetch(SHEET_URL + "?action=read")
+    .then(res => res.json())
+    .then(data => {
+      allData = data;
+      updateMapMarkers(data);
+      updateTable(data);
+      updateGroupedTable(data);
+      statusEl.textContent = "";
+    })
+    .catch(err => {
+      statusEl.textContent = "讀取資料失敗，請稍後重試";
+      console.error(err);
+    });
+}
+
+// 更新地圖標記
+function updateMapMarkers(data) {
+  markers.clearLayers();
+
+  data.forEach(item => {
+    let marker = L.marker([item.lat, item.lng])
+      .bindPopup(`路燈編號: ${item.id}`)
+      .on('click', () => {
+        document.getElementById('lamp_id').value = item.id;
+        document.getElementById('lat').value = item.lat;
+        document.getElementById('lng').value = item.lng;
+      });
+    markers.addLayer(marker);
+  });
+
+  if (!map.hasLayer(markers)) {
+    map.addLayer(markers);
+  }
+}
+
+// 更新簡單表格 (查詢結果或全部)
+function updateTable(data) {
+  let html = "<table><tr><th>路燈編號</th><th>緯度</th><th>經度</th></tr>";
+  data.forEach(item => {
+    html += `<tr><td>${item.id}</td><td>${item.lat}</td><td>${item.lng}</td></tr>`;
+  });
+  html += "</table>";
+  document.getElementById('table').innerHTML = html;
+}
+
+// 依編號前兩碼分組並顯示詳細表格
+function updateGroupedTable(data) {
+  // 以編號前2碼分組
+  const groups = {};
+  data.forEach(item => {
+    const groupKey = item.id.substring(0, 2) || "未分類";
+    if (!groups[groupKey]) groups[groupKey] = [];
+    groups[groupKey].push(item);
+  });
+
+  let html = "";
+  for (const groupKey in groups) {
+    html += `<div class="group-title">組別：${groupKey}</div>`;
+    html += "<table><tr><th>路燈編號</th><th>緯度</th><th>經度</th></tr>";
+    groups[groupKey].forEach(item => {
+      html += `<tr><td>${item.id}</td><td>${item.lat}</td><td>${item.lng}</td></tr>`;
+    });
+    html += "</table>";
+  }
+
+  document.getElementById('groupedTable').innerHTML = html;
+}
+
+// 路燈編號查詢
+function searchLamp() {
+  const keyword = document.getElementById('search_id').value.trim().toLowerCase();
+  if (!keyword) {
+    alert("請輸入查詢編號");
+    return;
+  }
+  // 篩選編號含關鍵字的項目
+  const filtered = allData.filter(item => item.id.toLowerCase().includes(keyword));
+  if(filtered.length === 0){
+    alert("找不到符合的路燈編號");
+  }
+  updateMapMarkers(filtered);
+  updateTable(filtered);
+  updateGroupedTable(filtered);
+}
+
+// 清除查詢，回復顯示全部
+function clearSearch() {
+  document.getElementById('search_id').value = "";
+  updateMapMarkers(allData);
+  updateTable(allData);
+  updateGroupedTable(allData);
+}
+
+// 新增/更新
+function saveLamp() {
+  const id = document.getElementById('lamp_id').value.trim();
+  const lat = document.getElementById('lat').value.trim();
+  const lng = document.getElementById('lng').value.trim();
+
+  if(!id || !lat || !lng) {
+    alert("請填寫完整路燈編號與經緯度");
+    return;
+  }
+
+  statusEl.textContent = "送出中...";
+
+  fetch(SHEET_URL + "?action=write", {
+    method: "POST",
+    body: new URLSearchParams({ id, lat, lng })
+  })
+  .then(res => res.text())
+  .then(msg => {
+    statusEl.textContent = msg;
+    loadData();
+  })
+  .catch(err => {
+    statusEl.textContent = "送出失敗";
+    console.error(err);
+  });
+}
+
+// 刪除
+function deleteLamp() {
+  const id = document.getElementById('lamp_id').value.trim();
+  if (!id) {
+    alert("請輸入要刪除的路燈編號");
+    return;
+  }
+
+  statusEl.textContent = "刪除中...";
+
+  fetch(SHEET_URL + "?action=delete", {
+    method: "POST",
+    body: new URLSearchParams({ id })
+  })
+  .then(res => res.text())
+  .then(msg => {
+    statusEl.textContent = msg;
+    loadData();
+  })
+  .catch(err => {
+    statusEl.textContent = "刪除失敗";
+    console.error(err);
+  });
+}
+
+// 定位使用者
+function locateUser() {
+  if (!navigator.geolocation) {
+    alert("你的瀏覽器不支援定位功能");
+    return;
+  }
+
+  statusEl.textContent = "正在定位中...";
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      statusEl.textContent = `定位成功: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+
+      map.setView([lat, lng], 16);
+
+      if (window.userLocationMarker) {
+        map.removeLayer(window.userLocationMarker);
+      }
+
+      window.userLocationMarker = L.marker([lat, lng], {
+        title: "你的位置",
+        icon: L.icon({
+          iconUrl: 'https://cdn-icons-png.flaticon.com/512/4870/4870329.png',
+          iconSize: [30, 30],
+          iconAnchor: [15, 30],
+        })
+      }).addTo(map).bindPopup("你現在的位置").openPopup();
+    },
+    (err) => {
+      statusEl.textContent = "定位失敗：" + err.message;
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0
+    }
+  );
+}
+
+// 載入頁面時讀取全部資料
+loadData();
+</script>
+
+</body>
+</html>
