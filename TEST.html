@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8" />
+<title>路燈管理系統 - 群集版</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css"
+/>
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css"
+/>
+<style>
+  #map { height: 500px; margin-bottom:10px; }
+  table, th, td { border: 1px solid #aaa; border-collapse: collapse; padding: 5px; }
+  th { background: #eee; }
+  input { margin-right:10px; }
+  button { margin-right: 20px; }
+</style>
+</head>
+<body>
+
+<h2>路燈管理系統 - 群集版</h2>
+
+<div id="map"></div>
+
+<form id="form">
+  路燈編號: <input type="text" id="lamp_id" required />
+  緯度: <input type="number" step="any" id="lat" required />
+  經度: <input type="number" step="any" id="lng" required />
+  <button type="button" onclick="saveLamp()">新增/更新</button>
+  <button type="button" onclick="deleteLamp()">刪除</button>
+</form>
+
+<p id="status"></p>
+
+<h3>所有路燈資料</h3>
+<div id="table"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+
+<script>
+const SHEET_URL = "https://script.google.com/macros/s/AKfycbwe5HzfCmOKIhpXEfmQUpueCwsl-2MxsAm5enbLRLp4q3vPhBe3uynUUPHwfQbM3xdHZg/exec";
+
+// Leaflet 地圖初始化，預設中心與縮放層級
+const map = L.map('map', {
+  center: [24.4126, 120.6845],
+  zoom: 14,
+  maxZoom: 22
+});
+
+// 建立群集圖層物件
+const markers = L.markerClusterGroup();
+
+const statusEl = document.getElementById('status');
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 22 }).addTo(map);
+
+// 點擊地圖空白區，填入經緯度
+map.on('click', e => {
+  document.getElementById('lat').value = e.latlng.lat.toFixed(6);
+  document.getElementById('lng').value = e.latlng.lng.toFixed(6);
+});
+
+// 載入資料
+function loadData() {
+  fetch(SHEET_URL + "?action=read")
+    .then(res => res.json())
+    .then(data => {
+      markers.clearLayers();
+
+      let html = "<table><tr><th>路燈編號</th><th>緯度</th><th>經度</th></tr>";
+      data.forEach(item => {
+        html += `<tr><td>${item.id}</td><td>${item.lat}</td><td>${item.lng}</td></tr>`;
+
+        let marker = L.marker([item.lat, item.lng])
+          .bindPopup(`路燈編號: ${item.id}`)
+          .on('click', () => {
+            document.getElementById('lamp_id').value = item.id;
+            document.getElementById('lat').value = item.lat;
+            document.getElementById('lng').value = item.lng;
+          });
+
+        markers.addLayer(marker);
+      });
+      html += "</table>";
+      document.getElementById('table').innerHTML = html;
+
+      if (!map.hasLayer(markers)) {
+        map.addLayer(markers);
+      }
+
+      statusEl.textContent = "";
+    })
+    .catch(err => {
+      statusEl.textContent = "讀取資料失敗，請稍後重試";
+      console.error(err);
+    });
+}
+
+// 新增或更新
+function saveLamp() {
+  const id = document.getElementById('lamp_id').value.trim();
+  const lat = document.getElementById('lat').value.trim();
+  const lng = document.getElementById('lng').value.trim();
+
+  if(!id || !lat || !lng) {
+    alert("請填寫完整路燈編號與經緯度");
+    return;
+  }
+
+  statusEl.textContent = "送出中...";
+
+  fetch(SHEET_URL + "?action=write", {
+    method: "POST",
+    body: new URLSearchParams({ id, lat, lng })
+  })
+  .then(res => res.text())
+  .then(msg => {
+    statusEl.textContent = msg;
+    loadData();
+  })
+  .catch(err => {
+    statusEl.textContent = "送出失敗";
+    console.error(err);
+  });
+}
+
+// 刪除
+function deleteLamp() {
+  const id = document.getElementById('lamp_id').value.trim();
+  if (!id) {
+    alert("請輸入要刪除的路燈編號");
+    return;
+  }
+
+  statusEl.textContent = "刪除中...";
+
+  fetch(SHEET_URL + "?action=delete", {
+    method: "POST",
+    body: new URLSearchParams({ id })
+  })
+  .then(res => res.text())
+  .then(msg => {
+    statusEl.textContent = msg;
+    loadData();
+  })
+  .catch(err => {
+    statusEl.textContent = "刪除失敗";
+    console.error(err);
+  });
+}
+
+// 頁面載入時先讀取資料
+loadData();
+
+</script>
+
+</body>
+</html>
