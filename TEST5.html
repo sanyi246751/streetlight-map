@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="utf-8" />
-  <title>路燈管理系統 - 永久顯示編號</title>
+  <title>路燈管理系統 - SVG 標記與編號</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
@@ -12,14 +12,15 @@
     #map { height: 500px; width: 100%; margin-bottom: 10px; }
 
     .lamp-label {
-      background: rgba(255, 255, 255, 0.85);
-      border: 1px solid #333;
-      padding: 2px 4px;
-      border-radius: 4px;
-      font-size: 12px;
       font-weight: bold;
+      font-size: 14px;
       color: #222;
-      white-space: nowrap;
+      margin-left: 6px;
+      user-select: none;
+    }
+    .lamp-marker {
+      display: flex;
+      align-items: center;
     }
 
     table, th, td {
@@ -27,7 +28,6 @@
       border-collapse: collapse;
       padding: 5px;
     }
-
     th { background: #eee; }
     input, button { margin: 5px 10px 5px 0; }
 
@@ -102,6 +102,7 @@
 
 <script>
 const SHEET_URL = "https://script.google.com/macros/s/AKfycbwe5HzfCmOKIhpXEfmQUpueCwsl-2MxsAm5enbLRLp4q3vPhBe3uynUUPHwfQbM3xdHZg/exec";
+
 const map = L.map('map', { center: [24.4126, 120.6845], zoom: 14, maxZoom: 22 });
 const markers = L.markerClusterGroup();
 const statusEl = document.getElementById('status');
@@ -116,26 +117,50 @@ map.on('click', e => {
   document.getElementById('lng').value = lng;
 });
 
+function fitMapToMarkers(markersGroup) {
+  const groupBounds = markersGroup.getBounds();
+  if (groupBounds.isValid()) {
+    map.fitBounds(groupBounds.pad(0.2));
+  }
+}
+
 function updateMapMarkers(data) {
   markers.clearLayers();
+
   data.forEach(item => {
+    const svgIcon = `
+      <svg width="30" height="40" viewBox="0 0 30 40" xmlns="http://www.w3.org/2000/svg" >
+        <circle cx="15" cy="12" r="10" fill="orange" stroke="black" stroke-width="2"/>
+        <rect x="13" y="22" width="4" height="15" fill="#666" />
+      </svg>`;
+
+    const html = `
+      <div class="lamp-marker">
+        ${svgIcon}
+        <div class="lamp-label">${item.id}</div>
+      </div>`;
+
     const marker = L.marker([item.lat, item.lng], {
       icon: L.divIcon({
-        className: 'lamp-label-icon',
-        html: `<div class="lamp-label">${item.id}</div>`,
-        iconSize: [60, 20],
-        iconAnchor: [30, 10]
+        className: '',
+        html: html,
+        iconSize: [80, 40],
+        iconAnchor: [15, 40]
       })
     }).on('click', () => {
       document.getElementById('lamp_id').value = item.id;
       document.getElementById('lat').value = item.lat;
       document.getElementById('lng').value = item.lng;
     });
+
     markers.addLayer(marker);
   });
+
   if (!map.hasLayer(markers)) {
     map.addLayer(markers);
   }
+  
+  fitMapToMarkers(markers);
 }
 
 function loadData() {
@@ -189,20 +214,19 @@ function searchLamp() {
     alert("請輸入查詢編號");
     return;
   }
-  let found = false;
-  markers.eachLayer(marker => {
-    const html = marker.options.icon.options.html;
-    if (html.toLowerCase().includes(keyword)) {
-      marker.openPopup?.();
-      map.setView(marker.getLatLng(), 18);
-      found = true;
-    }
-  });
-  if (!found) {
+
+  const filtered = allData.filter(item => item.id.toLowerCase().includes(keyword));
+  if (filtered.length === 0) {
     alert("找不到符合的路燈編號");
-    statusEl.textContent = "查無資料";
-  } else {
-    statusEl.textContent = `已顯示符合「${keyword}」的路燈`;
+  }
+  updateMapMarkers(filtered);
+  updateTable(filtered);
+  updateGroupedTable(filtered);
+
+  if (filtered.length === 1) {
+    map.setView([filtered[0].lat, filtered[0].lng], 18);
+  } else if (filtered.length > 1) {
+    fitMapToMarkers(markers);
   }
 }
 
