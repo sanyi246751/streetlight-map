@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8" />
+  <title>路燈管理系統 - 搜尋結果跳出群集</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    #map { height: 500px; width: 100%; margin-bottom: 10px; }
+
+    .lamp-label {
+      font-weight: bold;
+      font-size: 14px;
+      color: #222;
+      margin-bottom: 4px;
+      user-select: none;
+    }
+    .lamp-marker {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      user-select: none;
+    }
+
+    .highlight-marker svg circle {
+      fill: red !important;
+    }
+
+    table, th, td {
+      border: 1px solid #aaa;
+      border-collapse: collapse;
+      padding: 5px;
+    }
+    th { background: #eee; }
+    input, button { margin: 5px 10px 5px 0; }
+    a.lamp-link {
+      cursor: pointer;
+      color: blue;
+      text-decoration: underline;
+    }
+
+    .group-title {
+      margin-top: 20px;
+      font-weight: bold;
+      font-size: 1.2em;
+    }
+
+    .container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    .left-panel { flex: 2; min-width: 300px; }
+    .right-panel { flex: 1; min-width: 280px; }
+
+    .section { margin-bottom: 20px; }
+
+    @media (max-width: 768px) {
+      .container { flex-direction: column; }
+    }
+
+    /* 🚫 預設隱藏表格區塊 */
+    #table, #groupedTable {
+      display: none;
+    }
+
+    /* 自訂群集樣式 */
+    .custom-cluster .cluster-icon {
+      background: #ffcc00;
+      color: #000;
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-weight: bold;
+      border: 2px solid #333;
+      box-shadow: 0 0 5px #555;
+      user-select: none;
+    }
+    .custom-cluster .small {
+      width: 30px;
+      height: 30px;
+      font-size: 12px;
+    }
+    .custom-cluster .medium {
+      width: 40px;
+      height: 40px;
+      font-size: 14px;
+    }
+    .custom-cluster .large {
+      width: 50px;
+      height: 50px;
+      font-size: 16px;
+    }
+    .custom-cluster .xlarge {
+      width: 60px;
+      height: 60px;
+      font-size: 18px;
+      background: #ff4444;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+<h2>路燈管理系統</h2>
+<hr />
+
+<div class="container">
+  <div class="left-panel">
+    <div id="map"></div>
+  </div>
+
+  <div class="right-panel">
+    <div class="section">
+      <button type="button" onclick="locateUser()">定位我</button>
+      <span id="status" style="margin-left: 10px;"></span>
+    </div>
+
+    <div class="section">
+      <label for="search_id">路燈編號查詢：</label><br />
+      <input type="text" id="search_id" placeholder="輸入編號搜尋" />
+      <button type="button" onclick="searchLamp()">查詢</button>
+      <button type="button" onclick="clearSearch()">清除查詢</button>
+    </div>
+
+    <div class="section">
+      <form id="form">
+        <label>路燈編號:</label><br />
+        <input type="text" id="lamp_id" required /><br />
+        <label>緯度:</label><br />
+        <input type="number" step="any" id="lat" required /><br />
+        <label>經度:</label><br />
+        <input type="number" step="any" id="lng" required /><br />
+        <button type="button" onclick="saveLamp()">新增/更新</button>
+        <button type="button" onclick="deleteLamp()">刪除</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<hr />
+<h3>所有路燈資料</h3>
+<div id="table"></div>
+<div id="groupedTable"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+
+<script>
+const SHEET_URL = "https://script.google.com/macros/s/AKfycbwe5HzfCmOKIhpXEfmQUpueCwsl-2MxsAm5enbLRLp4q3vPhBe3uynUUPHwfQbM3xdHZg/exec";
+
+const map = L.map('map', { center: [24.4126, 120.6845], zoom: 14, maxZoom: 22 });
+
+const allMarkersGroup = L.markerClusterGroup({
+  maxClusterRadius: 50,
+  iconCreateFunction: cluster => {
+    const count = cluster.getChildCount();
+    let size = "small";
+    if (count >= 100) size = "xlarge";
+    else if (count >= 50) size = "large";
+    else if (count >= 20) size = "medium";
+    return L.divIcon({
+      html: `<div class="cluster-icon ${size}">${count}</div>`,
+      className: 'custom-cluster',
+      iconSize: L.point(40, 40)
+    });
+  }
+});
+
+const searchResultGroup = L.layerGroup();
+const statusEl = document.getElementById('status');
+let allData = [];
+let markerMap = new Map();
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 22 }).addTo(map);
+map.addLayer(allMarkersGroup);
+map.addLayer(searchResultGroup);
+
+map.on('click', e => {
+  const lat = e.latlng.lat.toFixed(6);
+  const lng = e.latlng.lng.toFixed(6);
+  document.getElementById('lat').value = lat;
+  document.getElementById('lng').value = lng;
+});
+
+function createMarkerIcon(id, highlight=false) {
+  const fillColor = highlight ? "red" : "orange";
+  const svgIcon = `
+    <svg width="30" height="40" viewBox="0 0 30 40" xmlns="http://www.w3.org/2000/svg" >
+      <circle cx="15" cy="12" r="10" fill="${fillColor}" stroke="black" stroke-width="2"/>
+      <rect x="13" y="22" width="4" height="15" fill="#666" />
+    </svg>`;
+  return `<div class="lamp-marker${highlight ? ' highlight-marker' : ''}"><div class="lamp-label">${id}</div>${svgIcon}</div>`;
+}
+
+function updateMapMarkers(data, highlightIds = []) {
+  allMarkersGroup.clearLayers();
+  searchResultGroup.clearLayers();
+  markerMap.clear();
+
+  data.forEach(item => {
+    const isHighlight = highlightIds.includes(item.id);
+    const html = createMarkerIcon(item.id, isHighlight);
+
+    const marker = L.marker([item.lat, item.lng], {
+      icon: L.divIcon({
+        className: '',
+        html: html,
+        iconSize: [40, 50],
+        iconAnchor: [15, 50]
+      })
+    }).on('click', () => {
+      document.getElementById('lamp_id').value = item.id;
+      document.getElementById('lat').value = item.lat;
+      document.getElementById('lng').value = item.lng;
+      highlightLampById(item.id);
+    });
+
+    markerMap.set(item.id, marker);
+    if (isHighlight) {
+      searchResultGroup.addLayer(marker);
+    } else {
+      allMarkersGroup.addLayer(marker);
+    }
+  });
+
+  const bounds = L.latLngBounds([]);
+  data.forEach(item => bounds.extend([item.lat, item.lng]));
+  if (bounds.isValid()) {
+    map.fitBounds(bounds.pad(0.2));
+  }
+}
+
+function updateTable(data) {
+  let html = "<table><tr><th>路燈編號</th><th>緯度</th><th>經度</th></tr>";
+  data.forEach(item => {
+    html += `<tr><td><a href="#" class="lamp-link" data-id="${item.id}">${item.id}</a></td><td>${item.lat}</td><td>${item.lng}</td></tr>`;
+  });
+  html += "</table>";
+  document.getElementById('table').innerHTML = html;
+
+  // 綁定點擊事件
+  document.querySelectorAll('.lamp-link').forEach(el => {
+    el.addEventListener('click', e => {
+      e.preventDefault();
+      const id = e.target.dataset.id;
+      highlightLampById(id);
+    });
+  });
+}
+
+function updateGroupedTable(data) {
+  const groups = {};
+  data.forEach(item => {
+    const groupKey = item.id.substring(0, 2) || "未分類";
+    if (!groups[groupKey]) groups[groupKey] = [];
+    groups[groupKey].push(item);
+  });
+
+  let html = "";
+  for (const groupKey in groups) {
+    html += `<div class="group-title">組別：${groupKey}</div>`;
+    html += "<table><tr><th>路燈編號</th><th>緯度</th><th>經度</th></tr>";
+    groups[groupKey].forEach(item => {
+      html += `<tr><td>${item.id}</td><td>${item.lat}</td><td>${item.lng}</td></tr>`;
+    });
+    html += "</table>";
+  }
+  document.getElementById('groupedTable').innerHTML = html;
+}
+
+function bounceMarker(marker) {
+  let duration = 300;
+  let originalPos = marker.getLatLng();
+  let up = L.latLng(originalPos.lat + 0.0001, originalPos.lng);
+  let down = originalPos;
+  let count = 0;
+  let interval = setInterval(() => {
+    marker.setLatLng(count % 2 === 0 ? up : down);
+    count++;
+    if (count > 5) {
+      clearInterval(interval);
+      marker.setLatLng(down);
+    }
+  }, duration / 2);
+}
+
+let currentHighlightId = null;
+
+function highlightLampById(id) {
+  if (!markerMap.has(id)) return;
+
+  // 移除之前標記的特別標記（如果有）
+  if (currentHighlightId && markerMap.has(currentHighlightId)) {
+    const prevMarker = markerMap.get(currentHighlightId);
+    resetMarkerIcon(prevMarker, currentHighlightId);
+  }
+
+  currentHighlightId = id;
+  const marker = markerMap.get(id);
+
+  // 更新標記圖示為紅色（highlight）
+  setMarkerIcon(marker, id, true);
+
+  // 將地圖移動到該路燈
+  map.setView(marker.getLatLng(), 18);
+
+  // 讓標記跳動提醒
+  bounceMarker(marker);
+}
+
+function setMarkerIcon(marker, id, highlight) {
+  const fillColor = highlight ? "red" : "orange";
+  const html = `
+    <div class="lamp-marker${highlight ? ' highlight-marker' : ''}">
+      <div class="lamp-label">${id}</div>
+      <svg width="30" height="40" viewBox="0 0 30 40" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="15" cy="12" r="10" fill="${fillColor}" stroke="black" stroke-width="2"/>
+        <rect x="13" y="22" width="4" height="15" fill="#666" />
+      </svg>
+    </div>`;
+
+  marker.setIcon(L.divIcon({
+    className: '',
+    html: html,
+    iconSize: [40, 50],
+    iconAnchor: [15, 50]
+  }));
+}
+
+function resetMarkerIcon(marker, id) {
+  setMarkerIcon(marker, id, false);
+}
+
+function searchLamp() {
+  const keyword = document.getElementById('search_id').value.trim().toLowerCase();
+  if (!keyword) {
+    alert("請輸入查詢編號");
+    return;
+  }
+
+  const filtered = allData.filter(item => item.id.toLowerCase().includes(keyword));
+  if (filtered.length === 0) {
+    alert("找不到符合的路燈編號");
+    return;
+  }
+
+  updateMapMarkers(allData, filtered.map(item => item.id));
+
+  if (filtered.length === 1) {
+    const target = filtered[0];
+    map.setView([target.lat, target.lng], 18);
+    const marker = markerMap.get(target.id);
+    if (marker) bounceMarker(marker);
+  } else {
+    const bounds = L.latLngBounds([]);
+    filtered.forEach(item => bounds.extend([item.lat, item.lng]));
+    allData.forEach(item => bounds.extend([item.lat, item.lng]));
+    if (bounds.isValid()) {
+      map.fitBounds(bounds.pad(0.2));
+    }
+  }
+
+  updateTable(filtered);
+  updateGroupedTable(filtered);
+  document.getElementById('table').style.display = 'block';
+  document.getElementById('groupedTable').style.display = 'block';
+}
+
+function clearSearch() {
+  document.getElementById('search_id').value = "";
+  updateMapMarkers(allData);
+  document.getElementById('table').style.display = 'none';
+  document.getElementById('groupedTable').style.display = 'none';
+  statusEl.textContent = "";
+  if (currentHighlightId && markerMap.has(currentHighlightId)) {
+    resetMarkerIcon(markerMap.get(currentHighlightId), currentHighlightId);
+    currentHighlightId = null;
+  }
+}
+
+function saveLamp() {
+  const id = document.getElementById('lamp_id').value.trim();
+  const lat = document.getElementById('lat').value.trim();
+  const lng = document.getElementById('lng').value.trim();
+  if (!id || !lat || !lng) {
+    alert("請填寫完整路燈編號與經緯度");
+    return;
+  }
+  statusEl.textContent = "送出中...";
+  fetch(SHEET_URL + "?action=write", {
+    method: "POST",
+    body: new URLSearchParams({ id, lat, lng })
+  })
+    .then(res => res.text())
+    .then(msg => {
+      statusEl.textContent = msg;
+      loadData();
+    })
+    .catch(err => {
+      statusEl.textContent = "送出失敗";
+      console.error(err);
+    });
+}
+
+function deleteLamp() {
+  const id = document.getElementById('lamp_id').value.trim();
+  if (!id) {
+    alert("請輸入要刪除的路燈編號");
+    return;
+  }
+  statusEl.textContent = "刪除中...";
+  fetch(SHEET_URL + "?action=delete", {
+    method: "POST",
+    body: new URLSearchParams({ id })
+  })
+    .then(res => res.text())
+    .then(msg => {
+      statusEl.textContent = msg;
+      loadData();
+    })
+    .catch(err => {
+      statusEl.textContent = "刪除失敗";
+      console.error(err);
+    });
+}
+
+function locateUser() {
+  if (!navigator.geolocation) {
+    alert("你的瀏覽器不支援定位功能");
+    return;
+  }
+  statusEl.textContent = "正在定位中...";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      statusEl.textContent = `定位成功: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+      map.setView([lat, lng], 16);
+      if (window.userLocationMarker) {
+        map.removeLayer(window.userLocationMarker);
+      }
+      window.userLocationMarker = L.marker([lat, lng], {
+        icon: L.icon({
+          iconUrl: 'https://cdn-icons-png.flaticon.com/512/4870/4870329.png',
+          iconSize: [30, 30],
+          iconAnchor: [15, 30],
+        }),
+        title: "你的位置"
+      }).addTo(map).bindPopup("你現在的位置").openPopup();
+    },
+    (err) => {
+      statusEl.textContent = "定位失敗：" + err.message;
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0
+    }
+  );
+}
+
+function loadData() {
+  fetch(SHEET_URL + "?action=read")
+    .then(res => res.json())
+    .then(data => {
+      allData = data;
+      updateMapMarkers(data);
+      statusEl.textContent = "";
+    })
+    .catch(err => {
+      statusEl.textContent = "讀取資料失敗，請稍後重試";
+      console.error(err);
+    });
+}
+
+loadData();
+</script>
+</body>
+</html>
