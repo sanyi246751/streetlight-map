@@ -132,7 +132,6 @@
 </div>
 
 <div id="map"></div>
-<div class="toggle-btn" onclick="toggleTooltips()">隱藏路燈號碼</div>
 <div id="unrepairedCount">未查修數量：0</div>
 <div id="unrepairedList"><b>未查修清單</b><ul id="unrepairedItems"></ul></div>
 
@@ -343,15 +342,6 @@
   document.getElementById("searchInput").addEventListener("keyup", e => {
     if (e.key === "Enter") searchLocation();
   });
-
-  let tooltipsVisible = true;
-  function toggleTooltips() {
-    tooltipsVisible = !tooltipsVisible;
-    document.querySelector(".toggle-btn").textContent = tooltipsVisible ? "隱藏路燈號碼" : "顯示路燈號碼";
-    document.querySelectorAll(".leaflet-tooltip").forEach(el => {
-      el.style.display = tooltipsVisible ? "block" : "none";
-    });
-  }
 
   fetch('Sanyi_villages.geojson')
     .then(res => res.json())
