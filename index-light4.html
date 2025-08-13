@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>路燈位置查詢地圖</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+    <style>
+        /* 使用 !important 確保地圖容器能正確顯示 */
+        html, body, #map {
+            height: 100vh !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        .leaflet-control-container { z-index: 1000; }
+        #search {
+            position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1001;
+            background: white; padding: 5px; border-radius: 4px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.3); max-width: 250px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #search input {
+            width: 120px; font-size: 15px; margin-right: 5px;
+            padding: 4px; border: 1px solid #ccc; border-radius: 3px;
+        }
+        #search button {
+            padding: 4px 8px; font-size: 15px;
+            background-color: #007bff; color: white;
+            border: none; border-radius: 3px; cursor: pointer;
+        }
+        @media (max-width: 600px) {
+            #search { top: 5px; }
+        }
+        .custom-cluster {
+            border-radius: 50%;
+            background: rgba(0, 123, 255, 0.8);
+            color: white; text-align: center;
+            font-weight: bold; line-height: 40px;
+            box-shadow: 0 0 8px rgba(0,0,0,0.3);
+        }
+        .cluster-icon {
+            width: 40px; height: 40px;
+            border-radius: 50%; display: inline-block; line-height: 40px;
+        }
+        .cluster-icon.small { background: rgba(0, 123, 255, 0.7); }
+        .cluster-icon.medium { background: rgba(255, 193, 7, 0.8); }
+        .cluster-icon.large { background: rgba(220, 53, 69, 0.8); }
+        .leaflet-tooltip {
+            font-size: 16px; font-weight: bold;
+            background: transparent;
+            padding: 0; border-radius: 0; border: none; box-shadow: none;
+            white-space: nowrap;
+        }
+        .leaflet-tooltip::before,
+        .leaflet-tooltip::after {
+            content: none;
+            display: none;
+        }
+        #unrepairedCount {
+            position: fixed; 
+            top: 85px; 
+            right: 15px; 
+            z-index: 1001;
+            background: white; padding: 5px 10px; border-radius: 4px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.3); font-weight: bold;
+        }
+        #unrepairedList {
+            position: fixed; bottom: 10px; left: 10px; z-index: 1001;
+            background: white; padding: 5px 10px; border-radius: 4px;
+            max-height: 200px; overflow-y: auto; width: 170px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.3); font-size: 13px;
+        }
+        #unrepairedList ul {
+            margin: 0; padding-left: 20px;
+        }
+        #unrepairedList li {
+            line-height: 1.6;
+        }
+        .custom-streetlight-icon {
+            position: relative;
+            width: 20px;
+            height: 40px;
+        }
+        .custom-streetlight-icon .pole {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            width: 4px;
+            height: 20px;
+            background: black;
+            border-radius: 2px;
+            transform: translateX(-50%);
+            transition: background-color 0.3s;
+        }
+        .custom-streetlight-icon .lamp {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid black;
+            box-sizing: border-box;
+            background: yellow;
+            box-shadow: 0 0 30px 10px yellow;
+            transform: translateX(-50%);
+            transition: background-color 0.3s, box-shadow 0.3s;
+        }
+        .custom-streetlight-icon.unrepaired .pole { background: black; }
+        .custom-streetlight-icon.unrepaired .lamp {
+            background: red;
+            border: 2px solid black;
+            box-shadow: 0 0 30px 10px red;
+            animation: blink 1s infinite;
+        }
+        .custom-streetlight-icon.selected .lamp {
+            background: #e040fb !important;
+            border: 2px solid #9c27b0;
+            box-shadow: 0 0 50px 20px #e040fb;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .popup-button {
+            background-color: #007bff; color: white; border: none;
+            padding: 5px 10px; text-align: center; text-decoration: none;
+            display: inline-block; font-size: 14px; margin-top: 5px;
+            cursor: pointer; border-radius: 4px;
+        }
+        .bottom-right-panel {
+            position: fixed; bottom: 10px; right: 10px; z-index: 1001;
+            background: white; border: 1px solid #ccc; border-radius: 4px;
+            padding: 6px 12px; font-size: 13px; font-weight: bold;
+            color: #333; box-shadow: 0 0 5px rgba(0,0,0,0.2); text-align: right;
+        }
+    </style>
+</head>
+<body>
+
+<div id="search">
+    <input type="text" id="searchInput" placeholder="請輸入路燈編號" />
+    <button onclick="searchLocation()">查詢</button>
+</div>
+
+<div id="map"></div>
+<div id="unrepairedCount">未查修數量：0</div>
+<div id="unrepairedList"><b>未查修清單</b><ul id="unrepairedItems"></ul></div>
+
+<div class="bottom-right-panel">
+    <button onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLSfVNWu8hTFXF20zaIrc3w6SAq0jevzRiel4erHUekvhVwGHxA/viewform', '_blank')" style="background-color:#007bff;color:white;border:none;border-radius:4px;padding:6px 12px;cursor:pointer;font-weight:bold;font-size:13px;">
+        💡 路燈通報系統
+    </button>
+    <div style="margin-top: 6px; font-weight: normal; color: #555;">
+        07/20/2025 W.K Design.
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+
+<script>
+    try {
+        const SHEET_ID = "1AEzSnycqfuXb59m6E19f2rMBrCc4UxwY5bGp0R6Qnxk";
+        const SHEET_NAME = encodeURIComponent("路燈位置參考");
+        const CHECK_SHEET_NAME = encodeURIComponent("回復表-路燈查修-升冪");
+        const sheetUrl = `https://opensheet.vercel.app/${SHEET_ID}/${SHEET_NAME}`;
+        const checkSheetUrl = `https://opensheet.vercel.app/${SHEET_ID}/${CHECK_SHEET_NAME}`;
+
+        const map = L.map('map', {
+            center: [24.4126, 120.6845],
+            zoom: 14,
+            maxZoom: 22
+        });
+
+        const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap',
+            maxNativeZoom: 19, maxZoom: 22
+        }).addTo(map);
+
+        const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles © Esri',
+            maxNativeZoom: 18, maxZoom: 22
+        });
+
+        const openTopo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenTopoMap',
+            maxNativeZoom: 17, maxZoom: 22
+        });
+
+        const layerControl = L.control.layers({
+            "街道地圖 (OSM)": osm,
+            "衛星地圖 (Esri)": esriSat,
+            "地形圖 (OpenTopoMap)": openTopo
+        }).addTo(map);
+
+        const markersCluster = L.markerClusterGroup({
+            maxClusterRadius: 50,
+            iconCreateFunction: cluster => {
+                const count = cluster.getChildCount();
+                let size = "small";
+                if (count >= 50) size = "large";
+                else if (count >= 20) size = "medium";
+                return L.divIcon({
+                    html: `<div class="cluster-icon ${size}">${count}</div>`,
+                    className: 'custom-cluster', iconSize: L.point(40, 40)
+                });
+            }
+        });
+
+        const markers = {};
+        let selectedMarker = null;
+
+        function parseTaiwanDateTime(twStr) {
+            if (!twStr) return null;
+            const parts = twStr.trim().split(' ');
+            if (parts.length < 3) return null;
+            const [datePart, ampm, timePart] = parts;
+            const [year, month, day] = datePart.split('/');
+            let [hour, minute, second] = timePart.split(':').map(Number);
+            if (ampm === '下午' && hour < 12) hour += 12;
+            if (ampm === '上午' && hour === 12) hour = 0;
+            return new Date(year, month - 1, day, hour, minute, second);
+        }
+
+        function createStreetlightIcon(unrepaired, selected = false) {
+            const classes = ['custom-streetlight-icon'];
+            if (unrepaired) classes.push('unrepaired');
+            if (selected) classes.push('selected');
+            const html = `<div class="${classes.join(' ')}">
+                <div class="pole"></div>
+                <div class="lamp"></div>
+            </div>`;
+            return L.divIcon({
+                html,
+                className: '',
+                iconSize: [20, 50],
+                iconAnchor: [10, 50],
+                popupAnchor: [0, -45],
+                tooltipAnchor: [0, -40],
+            });
+        }
+
+        function markerIsUnrepaired(marker) {
+            return marker.options.unrepaired === true;
+        }
+
+        function highlightMarker(marker) {
+            if (selectedMarker && selectedMarker !== marker) {
+                const wasUnrepaired = markerIsUnrepaired(selectedMarker);
+                selectedMarker.setIcon(createStreetlightIcon(wasUnrepaired, false));
+            }
+            marker.setIcon(createStreetlightIcon(false, true));
+            selectedMarker = marker;
+        }
+        
+        function openStreetView(lat, lng) {
+            window.open(`http://www.google.com/maps/place/${lat},${lng}/@${lat},${lng},17z/data=!3m1!1e1`, '_blank');
+        }
+
+        Promise.all([
+            fetch(sheetUrl).then(res => res.json()),
+            fetch(checkSheetUrl).then(res => res.json())
+        ]).then(([locationData, repairData]) => {
+            const unrepairedSet = new Set();
+            const reportTimeMap = new Map();
+            const faultMap = new Map();
+            const now = new Date();
+
+            repairData.forEach(row => {
+                const lampID = row["路燈編號"]?.trim();
+                const reportTimeStr = row["通報時間"]?.trim();
+                const status = (row["維修情形"] || "").trim();
+                const fault = (row["故障情形"] || "").trim();
+                if (lampID && status === "未查修") {
+                    unrepairedSet.add(lampID);
+                    if (reportTimeStr) {
+                        const reportDate = parseTaiwanDateTime(reportTimeStr);
+                        if (reportDate && !isNaN(reportDate)) {
+                            reportTimeMap.set(lampID, reportDate);
+                        }
+                    }
+                }
+                if (lampID) faultMap.set(lampID, fault);
+            });
+
+            document.getElementById("unrepairedCount").textContent = "未查修數量：" + unrepairedSet.size;
+
+            const latlngs = [];
+            locationData.forEach(row => {
+                const id = row["原路燈號碼"]?.trim();
+                const lat = parseFloat(row["緯度Latitude"]);
+                const lng = parseFloat(row["經度Longitude"]);
+                if (!id || isNaN(lat) || isNaN(lng)) return;
+                latlngs.push([lat, lng]);
+
+                const isUnrepaired = unrepairedSet.has(id);
+                const fault = faultMap.get(id) || "";
+                const icon = createStreetlightIcon(isUnrepaired, false);
+
+                const popupContent = isUnrepaired
+                    ? `⚠️<b>未查修</b><br>編號：${id}<br>故障情形：${fault}<br><button class="popup-button" onclick="openStreetView(${lat}, ${lng})">查看街景</button>`
+                    : `編號：${id}<br><button class="popup-button" onclick="openStreetView(${lat}, ${lng})">查看街景</button>`;
+
+                const marker = L.marker([lat, lng], {
+                    icon,
+                    zIndexOffset: isUnrepaired ? 1000 : 0,
+                    unrepaired: isUnrepaired
+                })
+                .bindPopup(popupContent)
+                .bindTooltip(id, { permanent: true, direction: "top", offset: [0, -5], opacity: 0.95 });
+
+                marker.on('click', () => {
+                    map.setView(marker.getLatLng(), map.getZoom());
+                    highlightMarker(marker);
+                });
+
+                if (isUnrepaired) {
+                    marker.addTo(map);
+                    const reportDate = reportTimeMap.get(id);
+                    let diffText = "", colorSymbol = "";
+                    if (reportDate) {
+                        const diffMs = now - reportDate;
+                        const diffDays = diffMs / (1000 * 60 * 60 * 24);
+                        const daysPart = Math.floor(diffDays);
+                        const hoursPart = Math.floor((diffMs - daysPart * 24 * 60 * 60 * 1000) / (1000 * 60 * 60));
+                        colorSymbol = diffDays < 1 ? "🔵" : diffDays < 3 ? "🟡" : diffDays < 7 ? "⚠️" : "🆘";
+                        diffText = `報修 ${daysPart}天${hoursPart}時 ${colorSymbol}`;
+                    } else {
+                        diffText = "無通報時間";
+                    }
+
+                    const listItem = document.createElement("li");
+                    listItem.innerHTML = `<a href="#" onclick="map.setView([${lat}, ${lng}], 18); markers['${id}'].openPopup(); highlightMarker(markers['${id}']); return false;">${id}</a> ${diffText}`;
+                    document.getElementById("unrepairedItems").appendChild(listItem);
+                } else {
+                    markersCluster.addLayer(marker);
+                }
+
+                markers[id] = marker;
+            });
+
+            map.addLayer(markersCluster);
+            if (latlngs.length > 0) map.fitBounds(latlngs, { padding: [0, 0] });
+        })
+        .catch(error => {
+            console.error("載入路燈資料時發生錯誤：", error);
+            alert("載入路燈資料時發生錯誤，請檢查網路連線或資料來源。");
+        });
+
+        function searchLocation() {
+            const input = document.getElementById("searchInput").value.trim();
+            if (input.length !== 5) {
+                alert("請輸入5碼路燈編號！");
+                return;
+            }
+            const marker = markers[input];
+            if (marker) {
+                map.setView(marker.getLatLng(), 19);
+                marker.openPopup();
+                highlightMarker(marker);
+            } else {
+                alert("查無此路燈編號！");
+            }
+        }
+
+        document.getElementById("searchInput").addEventListener("keyup", e => {
+            if (e.key === "Enter") searchLocation();
+        });
+
+        fetch('Sanyi_villages.geojson')
+            .then(res => res.json())
+            .then(geojson => {
+                const villageLayer = L.geoJSON(geojson, {
+                    style: {
+                        color: "#f50000", weight: 1, fillColor: "#7FFF00", fillOpacity: 0, dashArray: "5, 5"
+                    },
+                    onEachFeature: (feature, layer) => {
+                        const name = feature.properties["VILLNAME"] || feature.properties["name"] || "未知村里";
+                        layer.bindTooltip(name, { permanent: false, direction: "center" });
+                    }
+                }).addTo(map);
+                layerControl.addOverlay(villageLayer, "📍 村里界圖");
+            })
+            .catch(error => {
+                console.error("載入村里界圖資料時發生錯誤：", error);
+            });
+    } catch (e) {
+        console.error("地圖初始化失敗：", e);
+        alert("地圖初始化失敗，請檢查瀏覽器控制台的錯誤訊息。");
+    }
+</script>
+</body>
+</html>
