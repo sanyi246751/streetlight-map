@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>路燈維修回報系統</title>
+    <style>
+        :root {
+            --ui-blue: #3b82f6;
+            --ui-dark-blue: #1e3a8a;
+            --ui-green: #22c55e;
+            --ui-text-gray: #64748b;
+            --ui-border: #e2e8f0;
+        }
+
+        body {
+            font-family: -apple-system, "Noto Sans TC", sans-serif;
+            background: linear-gradient(180deg, #93c5fd 0%, #f8fafc 100%);
+            background-attachment: fixed;
+            margin: 0; padding: 0; color: #1e293b;
+        }
+
+        .nav-bar { padding: 25px 15px 10px; text-align: center; color: var(--ui-dark-blue); }
+        .nav-title { font-size: 24px; font-weight: 800; }
+
+        .container { padding: 0 15px 40px; max-width: 500px; margin: 0 auto; }
+
+        .card {
+            background: rgba(255, 255, 255, 0.9); border-radius: 16px; padding: 15px; 
+            margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .label { font-size: 14px; color: var(--ui-text-gray); margin-bottom: 6px; display: block; font-weight: bold; }
+        
+        .input-field {
+            width: 100%; border: 1px solid var(--ui-border); border-radius: 10px;
+            padding: 12px; font-size: 16px; box-sizing: border-box; background: #fff; margin-bottom: 12px;
+        }
+
+        .photo-card { background: white; border-radius: 16px; overflow: hidden; margin-bottom: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .photo-header {
+            background: var(--ui-dark-blue); color: white; padding: 12px 15px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .photo-body { padding: 15px; }
+        .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .comp-label { text-align: center; font-size: 13px; color: var(--ui-text-gray); margin-bottom: 8px; font-weight: bold; }
+
+        /* 預覽框：預設點擊是上傳檔案 */
+        .upload-box {
+            border: 2px dashed #cbd5e1; border-radius: 12px; aspect-ratio: 1/1;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            position: relative; background: #f8fafc; overflow: hidden; cursor: pointer;
+        }
+        .upload-icon { font-size: 30px; color: #94a3b8; }
+        .upload-box img { width: 100%; height: 100%; object-fit: cover; }
+
+        /* 實體拍照按鈕：點擊直接啟動相機 */
+        .cam-btn {
+            width: 100%; margin-top: 10px; padding: 12px 0; border: none; border-radius: 8px;
+            background: var(--ui-blue); color: white; font-weight: bold; font-size: 15px;
+            display: flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer;
+            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+        }
+        .cam-btn:active { background: var(--ui-dark-blue); transform: translateY(1px); }
+
+        .btn-add {
+            background: white; border: 2px dashed var(--ui-blue); color: var(--ui-blue);
+            width: 100%; padding: 15px; border-radius: 12px; font-weight: bold; margin-bottom: 25px;
+        }
+
+        .btn-submit {
+            background: var(--ui-green); color: white; border: none; border-radius: 12px;
+            width: 100%; padding: 18px; font-size: 20px; font-weight: bold; cursor: pointer;
+            box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4);
+        }
+
+        .remove-btn {
+            position: absolute; top: 5px; right: 5px; background: rgba(239, 68, 68, 0.9);
+            color: white; border: none; border-radius: 50%; width: 26px; height: 26px; z-index: 10;
+        }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="nav-bar">
+    <div class="nav-title">路燈維修回報系統</div>
+</div>
+
+<div class="container">
+    <div class="card">
+        <label class="label">維修項目</label>
+        <select id="sel" class="input-field"><option>載入中...</option></select>
+        
+        <label class="label">完成日期</label>
+        <input type="date" id="rDate" class="input-field">
+    </div>
+
+    <div id="photoContainer"></div>
+
+    <button class="btn-add" onclick="addNewGroup()">＋ 新增一組對照照片</button>
+
+    <div class="card">
+        <label class="label">維修說明 (備註)</label>
+        <textarea id="note" class="input-field" style="height: 80px;" placeholder="請輸入維修內容..."></textarea>
+    </div>
+
+    <button id="submitBtn" class="btn-submit" onclick="handleUpload()">確認上傳存檔</button>
+    <p id="status" style="text-align:center; color: var(--ui-dark-blue); font-weight:bold; margin-top:15px;"></p>
+</div>
+
+<script>
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxdpaA2X-qwW4RNbMnIdHKCE3D92rlx6aztJnFIZ9CIlBWpK5ga8f2XedMLIpjLToIr/exec"; 
+    let projectData = [];
+    let groupIndex = 0;
+
+    window.onload = function() {
+        document.getElementById('rDate').value = new Date().toISOString().split('T')[0];
+        addNewGroup(); 
+        
+        fetch(SCRIPT_URL).then(r => r.json()).then(data => {
+            projectData = data;
+            const sel = document.getElementById('sel');
+            sel.innerHTML = '<option value="">-- 請選擇維修項目 --</option>';
+            data.forEach(d => {
+                let o = document.createElement('option');
+                o.value = d.row; o.textContent = d.text;
+                sel.appendChild(o);
+            });
+        });
+    };
+
+    function addNewGroup() {
+        groupIndex++;
+        const html = `
+        <div class="photo-card" id="group-${groupIndex}">
+            <div class="photo-header">
+                <span>第 ${groupIndex} 組對照</span>
+                <span style="font-size:12px; cursor:pointer;" onclick="removeGroup(${groupIndex})">✕ 刪除</span>
+            </div>
+            <div class="photo-body">
+                <div class="comparison-grid">
+                    <div>
+                        <div class="comp-label">維修前 (Pre)</div>
+                        <div class="upload-box" onclick="triggerFile(${groupIndex}, 'pre')">
+                            <div class="upload-icon" id="pre-icon-${groupIndex}">📷</div>
+                            <div id="pre-wrap-${groupIndex}"></div>
+                        </div>
+                        <button class="cam-btn" onclick="triggerCamera(${groupIndex}, 'pre')">📸 直接拍照</button>
+                        <input type="file" id="cam-pre-${groupIndex}" class="hidden" accept="image/*" onchange="previewImg(this, ${groupIndex}, 'pre')">
+                    </div>
+                    <div>
+                        <div class="comp-label">維修後 (Post)</div>
+                        <div class="upload-box" onclick="triggerFile(${groupIndex}, 'post')">
+                            <div class="upload-icon" id="post-icon-${groupIndex}">📸</div>
+                            <div id="post-wrap-${groupIndex}"></div>
+                        </div>
+                        <button class="cam-btn" onclick="triggerCamera(${groupIndex}, 'post')">📸 直接拍照</button>
+                        <input type="file" id="cam-post-${groupIndex}" class="hidden" accept="image/*" onchange="previewImg(this, ${groupIndex}, 'post')">
+                    </div>
+                </div>
+            </div>
+        </div>`;
+        document.getElementById('photoContainer').insertAdjacentHTML('beforeend', html);
+    }
+
+    // 點擊預覽區：一般上傳 (選相簿或相機)
+    function triggerFile(id, type) {
+        const input = document.getElementById(`cam-${type}-${id}`);
+        input.removeAttribute('capture'); // 確保可以選相簿
+        input.click();
+    }
+
+    // 點擊按鈕：強制開啟相機
+    function triggerCamera(id, type) {
+        const input = document.getElementById(`cam-${type}-${id}`);
+        input.setAttribute('capture', 'camera'); // 強制相機模式
+        input.click();
+    }
+
+    function removeGroup(id) {
+        if(document.querySelectorAll('.photo-card').length > 1) {
+            if(confirm("確定刪除第 " + id + " 組？")) document.getElementById(`group-${id}`).remove();
+        }
+    }
+
+    function previewImg(input, id, type) {
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const wrap = document.getElementById(`${type}-wrap-${id}`);
+                const icon = document.getElementById(`${type}-icon-${id}`);
+                icon.classList.add('hidden');
+                wrap.innerHTML = `
+                    <button class="remove-btn" onclick="clearImg(event, ${id}, '${type}')">✕</button>
+                    <img src="${e.target.result}">
+                `;
+            };
+            reader.readAsDataURL(input.files[0]);
+        }
+    }
+
+    function clearImg(e, id, type) {
+        e.stopPropagation();
+        document.getElementById(`${type}-wrap-${id}`).innerHTML = "";
+        document.getElementById(`${type}-icon-${id}`).classList.remove('hidden');
+        document.getElementById(`cam-${type}-${id}`).value = "";
+    }
+
+    async function handleUpload() {
+        const row = document.getElementById("sel").value;
+        if (!row) return alert("請選擇維修項目");
+        
+        const btn = document.getElementById("submitBtn");
+        btn.disabled = true; btn.innerText = "處理中...";
+        document.getElementById("status").innerText = "⏳ 正在傳輸照片...";
+
+        try {
+            const photoData = [];
+            const cards = document.querySelectorAll('.photo-card');
+            for (let card of cards) {
+                const id = card.id.split('-')[1];
+                const preImg = card.querySelector(`#pre-wrap-${id} img`);
+                const postImg = card.querySelector(`#post-wrap-${id} img`);
+                if (preImg || postImg) {
+                    photoData.push({
+                        pre: preImg ? await compress(preImg.src) : null,
+                        post: postImg ? await compress(postImg.src) : null
+                    });
+                }
+            }
+
+            const current = projectData.find(d => d.row == row);
+            const payload = {
+                row, note: document.getElementById("note").value,
+                dateStr: document.getElementById("rDate").value,
+                photos: photoData, nameA: current.colA, nameB: current.colB
+            };
+
+            const resp = await fetch(SCRIPT_URL, { method: "POST", body: JSON.stringify(payload) });
+            const result = await resp.json();
+            if (result.status === "success") {
+                alert("上傳成功！");
+                location.reload();
+            } else { throw new Error(result.message); }
+        } catch (e) {
+            alert("錯誤: " + e.message);
+            btn.disabled = false; btn.innerText = "確認上傳存檔";
+        }
+    }
+
+    function compress(base64) {
+        return new Promise(res => {
+            const img = new Image();
+            img.src = base64;
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                let w = img.width, h = img.height, max = 1024;
+                if (w > h && w > max) { h *= max/w; w = max; }
+                else if (h > max) { w *= max/h; h = max; }
+                canvas.width = w; canvas.height = h;
+                canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+                res(canvas.toDataURL("image/jpeg", 0.7));
+            }
+        });
+    }
+</script>
+</body>
+</html>
