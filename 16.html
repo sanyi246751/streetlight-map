@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>路燈維修系統 (多組照片版)</title>
+    <style>
+        body{ font-family:sans-serif; background:#f4f7f6; display:flex; justify-content:center; align-items:center; min-height:100vh; margin:0; padding:20px; }
+        .card{ background:#fff; padding:25px; width:100%; max-width:450px; border-radius:12px; box-shadow:0 4px 15px rgba(0,0,0,0.1); }
+        h3{ text-align:center; color:#2c3e50; margin-top:0; }
+        label { font-size: 14px; font-weight: bold; color: #34495e; display: block; margin-top: 15px; }
+        select, input, textarea, button { width:100%; padding:12px; margin-top:8px; border-radius:6px; border:1px solid #ddd; box-sizing:border-box; font-size: 16px; }
+        .photo-group { background: #f9f9f9; padding: 10px; border-radius: 8px; margin-top: 10px; border: 1px dashed #ccc; }
+        textarea { resize: vertical; min-height: 80px; display: none; }
+        .btn-add { background:#3498db; color:#fff; border:none; cursor:pointer; margin-top:10px; font-size:14px; }
+        .btn-submit { background:#27ae60; color:#fff; border:none; cursor:pointer; font-weight:bold; margin-top:25px; font-size:18px; }
+        button:disabled { background:#bdc3c7; }
+        #status { font-size:13px; color:#2c3e50; margin-top:15px; background:#eaf2f8; padding:12px; border-radius:6px; display:none; border-left: 5px solid #27ae60; }
+        hr { border: 0; border-top: 1px solid #eee; margin: 20px 0; }
+
+        /* === 縮圖預覽 === */
+        .preview-wrap {
+            display: flex;
+            gap: 8px;
+            margin-top: 6px;
+            flex-wrap: wrap;
+        }
+        .preview-wrap img {
+            width: 80px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h3>🛠 路燈維修回報 (多組照片)</h3>
+    
+    <label>選擇維修項目</label>
+    <select id="sel"><option>載入中...</option></select>
+
+    <label>完成日期 (I 欄)</label>
+    <input type="date" id="rDate">
+
+    <div id="photoContainer">
+        <div class="photo-group">
+            <label>📷 第 1 組 - 維修前 (J 欄)</label>
+            <input type="file" class="f-pre" accept="image/*" capture="environment">
+            <div class="preview-wrap"></div>
+
+            <label>📷 第 1 組 - 維修後 (K 欄)</label>
+            <input type="file" class="f-post" accept="image/*" capture="environment">
+            <div class="preview-wrap"></div>
+        </div>
+    </div>
+    
+    <button type="button" class="btn-add" onclick="addPhotoGroup()">＋ 增加一組照片</button>
+
+    <hr>
+    <label>維修說明 (L 欄)</label>
+    <select id="noteType" onchange="checkNoteType()">
+        <option value="無">無</option>
+        <option value="台電線路問題">台電線路問題</option>
+        <option value="其他">其他 (請輸入)</option>
+    </select>
+    <textarea id="noteOther" placeholder="請輸入維修細節..."></textarea>
+
+    <button id="btn" class="btn-submit" onclick="handleUpload()">確認上傳存檔</button>
+    <div id="status"></div>
+</div>
+
+<script>
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxdpaA2X-qwW4RNbMnIdHKCE3D92rlx6aztJnFIZ9CIlBWpK5ga8f2XedMLIpjLToIr/exec"; 
+let projectData = [];
+let groupCount = 1;
+
+window.onload = function() {
+    document.getElementById('rDate').value = new Date().toISOString().split('T')[0];
+    fetch(SCRIPT_URL).then(r => r.json()).then(data => {
+        projectData = data;
+        const sel = document.getElementById('sel');
+        sel.innerHTML = '<option value="">-- 請選擇維修項目 --</option>';
+        data.forEach(d => {
+            let o = document.createElement('option');
+            o.value = d.row; 
+            o.textContent = d.text;
+            sel.appendChild(o);
+        });
+    });
+};
+
+function addPhotoGroup() {
+    groupCount++;
+    const container = document.getElementById('photoContainer');
+    const div = document.createElement('div');
+    div.className = 'photo-group';
+    div.innerHTML = `
+        <label>📷 第 ${groupCount} 組 - 維修前</label>
+        <input type="file" class="f-pre" accept="image/*" capture="environment">
+        <div class="preview-wrap"></div>
+
+        <label>📷 第 ${groupCount} 組 - 維修後</label>
+        <input type="file" class="f-post" accept="image/*" capture="environment">
+        <div class="preview-wrap"></div>
+    `;
+    container.appendChild(div);
+}
+
+function checkNoteType() {
+    const type = document.getElementById("noteType").value;
+    document.getElementById("noteOther").style.display = (type === "其他") ? "block" : "none";
+}
+
+async function handleUpload() {
+    const row = document.getElementById("sel").value;
+    const dateVal = document.getElementById("rDate").value;
+    const noteType = document.getElementById("noteType").value;
+    const noteOther = document.getElementById("noteOther").value;
+    const btn = document.getElementById("btn");
+    const status = document.getElementById("status");
+
+    if (!row) return alert("請先選擇項目");
+    const finalNote = (noteType === "其他") ? noteOther : noteType;
+    const currentItem = projectData.find(d => d.row == row);
+
+    btn.disabled = true;
+    status.style.display = "block";
+    status.innerHTML = "<b>[1/4] 🚀 雲端同步啟動</b><br>正在讀取回報清單與系統參數...";
+
+    try {
+        const groups = document.querySelectorAll('.photo-group');
+        const photoData = [];
+        let totalSizeByte = 0;
+
+        for (let i = 0; i < groups.length; i++) {
+            const preFile = groups[i].querySelector('.f-pre').files[0];
+            const postFile = groups[i].querySelector('.f-post').files[0];
+
+            let preBase64 = null;
+            let postBase64 = null;
+
+            if (preFile) {
+                preBase64 = await compress(preFile);
+                totalSizeByte += preBase64.length;
+            }
+            if (postFile) {
+                postBase64 = await compress(postFile);
+                totalSizeByte += postBase64.length;
+            }
+            photoData.push({ pre: preBase64, post: postBase64 });
+        }
+
+        const totalMB = (totalSizeByte / (1024 * 1024)).toFixed(2);
+        status.innerHTML = `<b>[4/4]</b><br>📤 傳輸中 (${totalMB} MB)...`;
+
+        const payload = { 
+            row, 
+            dateStr: dateVal, 
+            note: finalNote,
+            photos: photoData,
+            nameA: currentItem.colA,
+            nameB: currentItem.colB
+        };
+
+        const response = await fetch(SCRIPT_URL, {
+            method: "POST",
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (result.status === "success") {
+            status.innerHTML = `✅ 完成上傳 (${totalMB} MB)，即將重整`;
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            throw new Error(result.message);
+        }
+
+    } catch (err) {
+        status.innerHTML = `❌ 上傳失敗<br>${err.message}`;
+        btn.disabled = false;
+    }
+}
+
+function compress(file) {
+    return new Promise(resolve => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = e => {
+            const img = new Image();
+            img.src = e.target.result;
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                let max = 2048;
+                let w = img.width, h = img.height;
+                if (w > h && w > max) { h *= max/w; w = max; }
+                else if (h > max) { w *= max/h; h = max; }
+                canvas.width = w; 
+                canvas.height = h;
+                canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL("image/jpeg", 0.7));
+            };
+        };
+    });
+}
+
+/* === 圖片即時預覽 === */
+document.addEventListener('change', function (e) {
+    if (e.target.type !== 'file') return;
+
+    const preview = e.target.nextElementSibling;
+    if (!preview || !preview.classList.contains('preview-wrap')) return;
+
+    preview.innerHTML = '';
+    Array.from(e.target.files).forEach(file => {
+        const reader = new FileReader();
+        reader.onload = ev => {
+            const img = document.createElement('img');
+            img.src = ev.target.result;
+            preview.appendChild(img);
+        };
+        reader.readAsDataURL(file);
+    });
+});
+</script>
+</body>
+</html>
